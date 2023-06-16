@@ -1,0 +1,21 @@
+{
+    "name": "tomek-swienty/jsonmapper",
+    "description": "Map nested JSON structures onto PHP classes",
+    "license": "Apache-2.0",
+    "autoload": {
+        "psr-0": {"JsonMapper": "src/"}
+    },
+    "authors": [
+        {
+            "name": "Tomasz Świenty",
+            "role": "Developer"
+        }
+    ],
+    "require":{
+        "php": ">=7.0",
+        "ext-spl": "*",
+        "ext-json": "*",
+        "ext-pcre": "*",
+        "ext-reflection": "*"
+    }
+}
