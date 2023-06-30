@@ -47,7 +47,7 @@ final class JsonMapper {
 
 
     public function mapArray($json, $array, $class = null, $parent_key = '') {
-        
+
     }
 
 }
