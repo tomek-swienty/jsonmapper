@@ -1,4 +1,5 @@
 <?php
+use Illuminate\Support\Str;
 
 /**
  * JsonMapper
@@ -18,6 +19,13 @@ final class JsonMapper {
     protected $cache = [];
 
 
+    public function setLogger($logger) {
+
+        $this->logger = $logger;
+
+    }
+
+
     public function map($jsonObject, $targetObject) {
 
         if (!is_object($jsonObject)) {
@@ -34,42 +42,27 @@ final class JsonMapper {
 
 
 
-        foreach ($jsonObject as $key => $jvalue) {
-            $key = self::sanitizeKeyName($key);
+        foreach ($jsonObject as $propertyName => $jvalue) {
+            $propertyName = self::sanitizeKeyName($propertyName);
 
-
-            // Store the property inspection results so we don't have to do it
-            // again for subsequent objects of the same type
-            if (!isset($this->cache[$targetObjectClassNameAsString][$key])) {
-                $this->cache[$targetObjectClassNameAsString][$key]
-                    = $this->inspectProperty($targetObjectReflection, $key);
+            if (!isset($this->cache[$targetObjectClassNameAsString][$propertyName])) {
+                $this->cache[$targetObjectClassNameAsString][$propertyName] = $this->inspectProperty($targetObjectReflection, $propertyName);
             }
 
-            list($hasProperty, $accessor, $type, $isNullable)
-                = $this->cache[$targetObjectClassNameAsString][$key];
+            list($hasProperty, $accessor, $type, $isNullable) = $this->cache[$targetObjectClassNameAsString][$propertyName];
 
             if (!$hasProperty) {
                 if ($this->undefinedPropertyHandler !== null) {
                     call_user_func(
                         $this->undefinedPropertyHandler,
-                        $targetObject, $key, $jvalue
-                    );
-                } else {
-                    $this->log(
-                        'info',
-                        'Property {property} does not exist in {class}',
-                        array('property' => $key, 'class' => $targetObjectClassNameAsString)
+                        $targetObject, $propertyName, $jvalue
                     );
                 }
+
                 continue;
             }
 
-            if ($accessor === null) {
-                $this->log(
-                    'info',
-                    'Property {property} has no public setter method in {class}',
-                    array('property' => $key, 'class' => $targetObjectClassNameAsString)
-                );
+            if ($accessor === NULL) {
                 continue;
             }
 
@@ -81,7 +74,7 @@ final class JsonMapper {
                 $type = $this->removeNullable($type);
             } else if ($jvalue === null) {
                 throw new JsonMapper_Exception(
-                    'JSON property "' . $key . '" in class "'
+                    'JSON property "' . $propertyName . '" in class "'
                     . $targetObjectClassNameAsString . '" must not be NULL'
                 );
             }
@@ -99,7 +92,7 @@ final class JsonMapper {
             } else if ($this->isSimpleType($type)) {
                 if ($type === 'string' && is_object($jvalue)) {
                     throw new JsonMapper_Exception(
-                        'JSON property "' . $key . '" in class "'
+                        'JSON property "' . $propertyName . '" in class "'
                         . $targetObjectClassNameAsString . '" is an object and'
                         . ' cannot be converted to a string'
                     );
@@ -113,7 +106,7 @@ final class JsonMapper {
             if ($type === '') {
                 throw new JsonMapper_Exception(
                     'Empty type at property "'
-                    . $targetObjectClassNameAsString . '::$' . $key . '"'
+                    . $targetObjectClassNameAsString . '::$' . $propertyName . '"'
                 );
             } else if (strpos($type, '|')) {
                 throw new JsonMapper_Exception(
@@ -144,14 +137,14 @@ final class JsonMapper {
             if ($array !== null) {
                 if (!is_array($jvalue) && $this->isFlatType(gettype($jvalue))) {
                     throw new JsonMapper_Exception(
-                        'JSON property "' . $key . '" must be an array, '
+                        'JSON property "' . $propertyName . '" must be an array, '
                         . gettype($jvalue) . ' given'
                     );
                 }
 
                 $cleanSubtype = $this->removeNullable($subtype);
                 $subtype = $this->getFullNamespace($cleanSubtype, $targetObjectNamespaceAsString);
-                $child = $this->mapArray($jvalue, $array, $subtype, $key);
+                $child = $this->mapArray($jvalue, $array, $subtype, $propertyName);
             } else if ($this->isFlatType(gettype($jvalue))) {
                 $child = $this->createInstance($type, true, $jvalue);
             } else {
@@ -163,31 +156,6 @@ final class JsonMapper {
 
         return $targetObject;
     }
-
-    /**
-     * Convert a type name to a fully namespaced type name.
-     *
-     * @param string $type  Type name (simple type or class name)
-     * @param string $strNs Base namespace that gets prepended to the type name
-     *
-     * @return string Fully-qualified type name with namespace
-     */
-    protected function getFullNamespace($type, $strNs)
-    {
-        if ($type === null || $type === '' || $type[0] === '\\' || $strNs === '') {
-            return $type;
-        }
-        list($first) = explode('[', $type, 2);
-        if ($first === 'mixed' || $this->isSimpleType($first)) {
-            return $type;
-        }
-
-        //create a full qualified namespace
-        return '\\' . $strNs . '\\' . $type;
-    }
-
-
-
 
     /**
      * Map an array
@@ -205,8 +173,7 @@ final class JsonMapper {
      *
      * @return mixed Mapped $array is returned
      */
-    public function mapArray($json, $array, $class = null, $parent_key = '')
-    {
+    public function mapArray($json, $array, $class = null, $parent_key = '') {
         $originalClass = $class;
         foreach ($json as $key => $jvalue) {
             $class = $this->getMappedType($originalClass, $jvalue);
@@ -251,8 +218,42 @@ final class JsonMapper {
                 );
             }
         }
+
         return $array;
+
     }
+
+
+    protected function log($level, $message, array $context = []) {
+
+        if ($this->logger) {
+            $this->logger->log($level, $message, $context);
+        }
+
+    }
+
+    /**
+     * Convert a type name to a fully namespaced type name.
+     *
+     * @param string $type  Type name (simple type or class name)
+     * @param string $strNs Base namespace that gets prepended to the type name
+     *
+     * @return string Fully-qualified type name with namespace
+     */
+    protected function getFullNamespace($type, $strNs) {
+        if ($type === null || $type === '' || $type[0] === '\\' || $strNs === '') {
+            return $type;
+        }
+        list($first) = explode('[', $type, 2);
+        if ($first === 'mixed' || $this->isSimpleType($first)) {
+            return $type;
+        }
+
+        //create a full qualified namespace
+        return '\\' . $strNs . '\\' . $type;
+
+    }
+
 
     /**
      * Try to find out if a property exists in a given class.
@@ -372,7 +373,7 @@ final class JsonMapper {
 
     protected static function getCamelCaseName($name) {
 
-        return str_replace(' ', '', ucwords(str_replace(['_', '-'], ' ', $name)));
+        return \Illuminate\Support\Str::camel($name);
 
     }
 
@@ -623,32 +624,4 @@ final class JsonMapper {
         return $annotations;
     }
 
-    /**
-     * Log a message to the $logger object
-     *
-     * @param string $level   Logging level
-     * @param string $message Text to log
-     * @param array  $context Additional information
-     *
-     * @return null
-     */
-    protected function log($level, $message, array $context = array())
-    {
-        if ($this->logger) {
-            $this->logger->log($level, $message, $context);
-        }
-    }
-
-    /**
-     * Sets a logger instance on the object
-     *
-     * @param LoggerInterface $logger PSR-3 compatible logger object
-     *
-     * @return null
-     */
-    public function setLogger($logger)
-    {
-        $this->logger = $logger;
-    }
 }
-?>
