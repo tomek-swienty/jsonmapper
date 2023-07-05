@@ -1,5 +1,7 @@
 <?php
 use Illuminate\Support\Str;
+use TSW\JSONMapper\Exception\Exception;
+
 
 /**
  * JsonMapper
@@ -29,11 +31,11 @@ final class JsonMapper {
     public function map($jsonObject, $targetObject) {
 
         if (!is_object($jsonObject)) {
-            throw new InvalidArgumentException('Parametr $json nie jest obiektem');
+            throw new Exception('Parametr $json nie jest obiektem');
         }
 
         if (!is_object($targetObject)) {
-            throw new InvalidArgumentException('Parametr $object nie jest obiektem');
+            throw new Exception('Parametr $object nie jest obiektem');
         }
 
         $targetObjectReflection = new ReflectionObject($targetObject);
@@ -42,21 +44,15 @@ final class JsonMapper {
 
 
 
-        foreach ($jsonObject as $propertyName => $jvalue) {
+        foreach ($jsonObject as $propertyName => $propertyValue) {
             $propertyName = self::sanitizeKeyName($propertyName);
 
-            if (!isset($this->cache[$targetObjectClassNameAsString][$propertyName])) {
-                $this->cache[$targetObjectClassNameAsString][$propertyName] = $this->inspectProperty($targetObjectReflection, $propertyName);
-            }
-
-            list($hasProperty, $accessor, $type, $isNullable) = $this->cache[$targetObjectClassNameAsString][$propertyName];
+            // keszowania w tej funkcji
+            [$hasProperty, $accessor, $type, $isNullable] = $this->inspectProperty($targetObjectReflection, $propertyName);
 
             if (!$hasProperty) {
-                if ($this->undefinedPropertyHandler !== null) {
-                    call_user_func(
-                        $this->undefinedPropertyHandler,
-                        $targetObject, $propertyName, $jvalue
-                    );
+                if ($this->undefinedPropertyHandler !== NULL) {
+                    call_user_func($this->undefinedPropertyHandler, $targetObject, $propertyName, $propertyValue);
                 }
 
                 continue;
@@ -67,12 +63,12 @@ final class JsonMapper {
             }
 
             if ($isNullable) {
-                if ($jvalue === null) {
+                if ($propertyValue === null) {
                     $this->setProperty($targetObject, $accessor, null);
                     continue;
                 }
                 $type = $this->removeNullable($type);
-            } else if ($jvalue === null) {
+            } else if ($propertyValue === null) {
                 throw new JsonMapper_Exception(
                     'JSON property "' . $propertyName . '" in class "'
                     . $targetObjectClassNameAsString . '" must not be NULL'
@@ -80,25 +76,25 @@ final class JsonMapper {
             }
 
             $type = $this->getFullNamespace($type, $targetObjectNamespaceAsString);
-            $type = $this->getMappedType($type, $jvalue);
+            $type = $this->getMappedType($type, $propertyValue);
 
             if ($type === null || $type === 'mixed') {
                 //no given type - simply set the json data
-                $this->setProperty($targetObject, $accessor, $jvalue);
+                $this->setProperty($targetObject, $accessor, $propertyValue);
                 continue;
-            } else if ($this->isObjectOfSameType($type, $jvalue)) {
-                $this->setProperty($targetObject, $accessor, $jvalue);
+            } else if ($this->isObjectOfSameType($type, $propertyValue)) {
+                $this->setProperty($targetObject, $accessor, $propertyValue);
                 continue;
             } else if ($this->isSimpleType($type)) {
-                if ($type === 'string' && is_object($jvalue)) {
+                if ($type === 'string' && is_object($propertyValue)) {
                     throw new JsonMapper_Exception(
                         'JSON property "' . $propertyName . '" in class "'
                         . $targetObjectClassNameAsString . '" is an object and'
                         . ' cannot be converted to a string'
                     );
                 }
-                settype($jvalue, $type);
-                $this->setProperty($targetObject, $accessor, $jvalue);
+                settype($propertyValue, $type);
+                $this->setProperty($targetObject, $accessor, $propertyValue);
                 continue;
             }
 
@@ -122,34 +118,34 @@ final class JsonMapper {
                 $array = array();
                 $subtype = substr($type, 0, -2);
             } else if (substr($type, -1) == ']') {
-                list($proptype, $subtype) = explode('[', substr($type, 0, -1));
+                [$proptype, $subtype] = explode('[', substr($type, 0, -1));
                 if ($proptype == 'array') {
                     $array = array();
                 } else {
-                    $array = $this->createInstance($proptype, false, $jvalue);
+                    $array = $this->createInstance($proptype, false, $propertyValue);
                 }
             } else {
                 if (is_a($type, 'ArrayObject', true)) {
-                    $array = $this->createInstance($type, false, $jvalue);
+                    $array = $this->createInstance($type, false, $propertyValue);
                 }
             }
 
             if ($array !== null) {
-                if (!is_array($jvalue) && $this->isFlatType(gettype($jvalue))) {
+                if (!is_array($propertyValue) && $this->isFlatType(gettype($propertyValue))) {
                     throw new JsonMapper_Exception(
                         'JSON property "' . $propertyName . '" must be an array, '
-                        . gettype($jvalue) . ' given'
+                        . gettype($propertyValue) . ' given'
                     );
                 }
 
                 $cleanSubtype = $this->removeNullable($subtype);
                 $subtype = $this->getFullNamespace($cleanSubtype, $targetObjectNamespaceAsString);
-                $child = $this->mapArray($jvalue, $array, $subtype, $propertyName);
-            } else if ($this->isFlatType(gettype($jvalue))) {
-                $child = $this->createInstance($type, true, $jvalue);
+                $child = $this->mapArray($propertyValue, $array, $subtype, $propertyName);
+            } else if ($this->isFlatType(gettype($propertyValue))) {
+                $child = $this->createInstance($type, true, $propertyValue);
             } else {
-                $child = $this->createInstance($type, false, $jvalue);
-                $this->map($jvalue, $child);
+                $child = $this->createInstance($type, false, $propertyValue);
+                $this->map($propertyValue, $child);
             }
             $this->setProperty($targetObject, $accessor, $child);
         }
@@ -244,7 +240,7 @@ final class JsonMapper {
         if ($type === null || $type === '' || $type[0] === '\\' || $strNs === '') {
             return $type;
         }
-        list($first) = explode('[', $type, 2);
+        [$first] = explode('[', $type, 2);
         if ($first === 'mixed' || $this->isSimpleType($first)) {
             return $type;
         }
@@ -268,10 +264,19 @@ final class JsonMapper {
      *               Third value: type of the property
      *               Fourth value: if the property is nullable
      */
-    protected function inspectProperty(ReflectionClass $rc, $name)
-    {
+    protected function inspectProperty(ReflectionObject $targetObjectReflection, $propertyName) {
+
+        $targetObjectClassNameAsString = $targetObjectReflection->getName();
+
+        if (isset($this->cache[$targetObjectClassNameAsString][$propertyName])) {
+            return $this->cache[$targetObjectClassNameAsString][$propertyName];
+        }
+
+
+        $targetObjectReflection->getName();
+
         //try setter method first
-        $setter = 'set' . self::getCamelCaseName($name);
+        $setter = 'set' . self::getCamelCaseName($propertyName);
 
         if ($rc->hasMethod($setter)) {
             $rmeth = $rc->getMethod($setter);
@@ -301,7 +306,7 @@ final class JsonMapper {
                 if (!isset($annotations['param'][0])) {
                     return array(true, $rmeth, null, $isNullable);
                 }
-                list($type) = explode(' ', trim($annotations['param'][0]));
+                [$type] = explode(' ', trim($annotations['param'][0]));
                 return array(true, $rmeth, $type, $this->isNullable($type));
             }
         }
@@ -311,15 +316,15 @@ final class JsonMapper {
         $class = $rc;
         $rprop = null;
         do {
-            if ($class->hasProperty($name)) {
-                $rprop = $class->getProperty($name);
+            if ($class->hasProperty($propertyName)) {
+                $rprop = $class->getProperty($propertyName);
             }
         } while ($rprop === null && $class = $class->getParentClass());
 
         if ($rprop === null) {
             //case-insensitive property matching
             foreach ($rc->getProperties() as $p) {
-                if ((strcasecmp($p->name, $name) === 0)) {
+                if ((strcasecmp($p->name, $propertyName) === 0)) {
                     $rprop = $p;
                     break;
                 }
@@ -357,7 +362,7 @@ final class JsonMapper {
                 }
 
                 //support "@var type description"
-                list($type) = explode(' ', $annotations['var'][0]);
+                [$type] = explode(' ', $annotations['var'][0]);
 
                 return array(true, $rprop, $type, $this->isNullable($type));
             } else {
