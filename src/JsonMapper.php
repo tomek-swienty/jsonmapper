@@ -2,7 +2,6 @@
 use Illuminate\Support\Str;
 use TSW\JSONMapper\Exception\Exception;
 
-
 /**
  * JsonMapper
  *
@@ -12,11 +11,11 @@ use TSW\JSONMapper\Exception\Exception;
  */
 final class JsonMapper {
 
-    
+
     public $classMap = array();
     public $undefinedPropertyHandler = NULL;
-    
-    
+
+
     protected $logger;
     protected $cache = [];
 
@@ -41,8 +40,6 @@ final class JsonMapper {
         $targetObjectReflection = new ReflectionObject($targetObject);
         $targetObjectClassNameAsString = $targetObjectReflection->getName();
         $targetObjectNamespaceAsString = $targetObjectReflection->getNamespaceName();
-
-
 
         foreach ($jsonObject as $propertyName => $propertyValue) {
             $propertyName = self::sanitizeKeyName($propertyName);
@@ -113,7 +110,7 @@ final class JsonMapper {
 
             $array = NULL;
             $subtype = NULL;
-            if ($this->isArrayOfType($type)) {
+            if (self::isArrayOfType($type)) {
                 //array
                 $array = array();
                 $subtype = substr($type, 0, -2);
@@ -151,7 +148,10 @@ final class JsonMapper {
         }
 
         return $targetObject;
+
     }
+
+
 
     /**
      * Map an array
@@ -170,12 +170,13 @@ final class JsonMapper {
      * @return mixed Mapped $array is returned
      */
     public function mapArray($json, $array, $class = NULL, $parent_key = '') {
+
         $originalClass = $class;
         foreach ($json as $key => $jvalue) {
             $class = $this->getMappedType($originalClass, $jvalue);
             if ($class === NULL) {
                 $array[$key] = $jvalue;
-            } else if ($this->isArrayOfType($class)) {
+            } else if (self::isArrayOfType($class)) {
                 $array[$key] = $this->mapArray(
                     $jvalue,
                     array(),
@@ -231,9 +232,12 @@ final class JsonMapper {
 
     protected static function getFullNamespace(&$type, $targetObjectNamespaceAsString) {
 
-        $type = is_null($type) ? NULL : preg_replace('/\|+/', '|', trim(str_ireplace('null', '', $type), '|'));
+        if (is_null($type) OR ($targetObjectNamespaceAsString === '')) {
+            return $type;
+        }
 
-        if ($type === NULL || $type === '' || $type[0] === '\\' || $targetObjectNamespaceAsString === '') {
+        $type = self::removeNullableType($type);
+        if (($type === NULL) OR ($type === '') OR ($type[0] === '\\')) {
             return $type;
         }
 
@@ -520,23 +524,24 @@ final class JsonMapper {
             || $type == 'double' || $type == 'float';
     }
 
-    /**
-     * Returns true if type is an array of elements
-     * (bracket notation)
-     *
-     * @param string $strType type to be matched
-     *
-     * @return bool
-     */
-    protected function isArrayOfType($strType)
-    {
-        return substr($strType, -2) === '[]';
+
+    protected static function isArrayOfType($type) {
+
+        return (preg_match('/\[\]$/', $type) === 1);
+
+    }
+
+
+    protected static function removeNullableType($type) {
+
+        return preg_replace('/\|+/', '|', trim(str_ireplace('null', '', $type), '|'));
+
     }
 
 
     protected static function isTypeNullable($type) {
 
-        return strlen(preg_replace('/\|+/', '|', trim(str_ireplace('null', '', $type), '|'))) != strlen($type);
+        return strlen(self::removeNullableType($type)) != strlen($type);
 
     }
 
